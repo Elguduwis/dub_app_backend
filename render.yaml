@@ -1,0 +1,25 @@
+
+services:
+
+  - type: web
+
+    name: dub-app-backend
+
+    runtime: python
+
+    repo: https://github.com/Elguduwis/dub_app_backend # Will be updated via Render dashboard anyway
+
+    plan: free
+
+    region: oregon
+
+    buildCommand: pip install -r requirements.txt
+
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+
+      - key: PYTHON_VERSION
+
+        value: 3.11.0
+
