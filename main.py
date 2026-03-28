@@ -1,16 +1,24 @@
+import os
+# FORCE PyTorch to use minimal memory before it even loads
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
+
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import whisper
-import os
 import uuid
 import shutil
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from pydub import AudioSegment
+import torch
+
+# Force CPU mode for PyTorch
+torch.set_num_threads(1)
 
 app = FastAPI(title="Dub App Backend")
 
-# Enable CORS for Flutter app
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,9 +27,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load Whisper model - Switched to "tiny" to fit in 512MB RAM
-print("Loading Whisper tiny model...")
-model = whisper.load_model("tiny")
+print("Loading Whisper tiny model on CPU...")
+# Explicitly force CPU device to prevent any CUDA memory allocation
+model = whisper.load_model("tiny", device="cpu")
 print("Backend ready!")
 
 @app.get("/")
@@ -30,35 +38,27 @@ async def root():
 
 @app.post("/process")
 async def process_file(file: UploadFile = File(...)):
-    """Process uploaded video/audio and return transcription"""
-    
-    # Generate unique ID for this file
     file_id = str(uuid.uuid4())
     original_ext = os.path.splitext(file.filename)[1]
     original_path = f"/tmp/{file_id}{original_ext}"
     
-    # Save uploaded file
     with open(original_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
     try:
-        # Convert to audio (WAV format)
         audio_path = f"/tmp/{file_id}.wav"
         
         if original_ext.lower() in ['.mp4', '.mov', '.avi', '.mkv']:
-            # Extract audio from video
             video = VideoFileClip(original_path)
-            video.audio.write_audiofile(audio_path, codec='pcm_s16le')
+            video.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
             video.close()
         else:
-            # Convert audio to WAV
             audio = AudioSegment.from_file(original_path)
             audio.export(audio_path, format="wav")
         
-        # Transcribe with Whisper (fp16=False prevents warnings on CPU-only servers)
+        # fp16=False is critical for CPU execution
         result = model.transcribe(audio_path, word_timestamps=True, fp16=False)
         
-        # Format segments
         segments = []
         for segment in result["segments"]:
             segments.append({
@@ -67,7 +67,6 @@ async def process_file(file: UploadFile = File(...)):
                 "text": segment["text"].strip()
             })
         
-        # Clean up
         os.remove(original_path)
         os.remove(audio_path)
         
@@ -79,7 +78,6 @@ async def process_file(file: UploadFile = File(...)):
         })
         
     except Exception as e:
-        # Clean up on error
         for path in [original_path, audio_path]:
             if os.path.exists(path):
                 os.remove(path)
