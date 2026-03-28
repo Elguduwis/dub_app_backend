@@ -19,9 +19,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load Whisper model
-print("Loading Whisper model...")
-model = whisper.load_model("base")
+# Load Whisper model - Switched to "tiny" to fit in 512MB RAM
+print("Loading Whisper tiny model...")
+model = whisper.load_model("tiny")
 print("Backend ready!")
 
 @app.get("/")
@@ -55,8 +55,8 @@ async def process_file(file: UploadFile = File(...)):
             audio = AudioSegment.from_file(original_path)
             audio.export(audio_path, format="wav")
         
-        # Transcribe with Whisper
-        result = model.transcribe(audio_path, word_timestamps=True)
+        # Transcribe with Whisper (fp16=False prevents warnings on CPU-only servers)
+        result = model.transcribe(audio_path, word_timestamps=True, fp16=False)
         
         # Format segments
         segments = []
